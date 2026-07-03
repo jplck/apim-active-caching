@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: apim-active-caching
+metadata:
+  template: apim-active-caching@1.0.0
+infra:
+  provider: terraform
+  path: infra
+# No services: the refresher runs a public image with an inline script, so there
+# is nothing to build. `azd up` just provisions the Terraform below.

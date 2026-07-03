@@ -1,0 +1,26 @@
+<!--
+  Mocked Workday "Get Workers" endpoint. Returns a static sample payload injected
+  from infra/data/workers.json at deploy time. This is the downstream the refresher
+  reads from. Swap in a real Workday backend by setting a service_url + <base/>.
+-->
+<policies>
+  <inbound>
+    <base />
+    <return-response>
+      <set-status code="200" reason="OK" />
+      <set-header name="Content-Type" exists-action="override">
+        <value>application/json</value>
+      </set-header>
+      <set-body><![CDATA[${workers_json}]]></set-body>
+    </return-response>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

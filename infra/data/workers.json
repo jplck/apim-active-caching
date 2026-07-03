@@ -1,0 +1,41 @@
+{
+  "total": 6,
+  "data": [
+    {
+      "workerId": "21001",
+      "company": { "id": "CMP-001", "name": "Contoso Ltd" },
+      "contact": { "name": "Logan McNeil", "email": "lmcneil@contoso.com", "phone": "+1-415-555-0101" },
+      "location": { "id": "LOC-SF", "name": "San Francisco", "country": "US" }
+    },
+    {
+      "workerId": "21002",
+      "company": { "id": "CMP-001", "name": "Contoso Ltd" },
+      "contact": { "name": "Steve Morgan", "email": "smorgan@contoso.com", "phone": "+1-415-555-0102" },
+      "location": { "id": "LOC-SF", "name": "San Francisco", "country": "US" }
+    },
+    {
+      "workerId": "21003",
+      "company": { "id": "CMP-001", "name": "Contoso Ltd" },
+      "contact": { "name": "Oliver Reynolds", "email": "oreynolds@contoso.com", "phone": "+1-212-555-0103" },
+      "location": { "id": "LOC-NYC", "name": "New York", "country": "US" }
+    },
+    {
+      "workerId": "21004",
+      "company": { "id": "CMP-002", "name": "Contoso GmbH" },
+      "contact": { "name": "Maria Cortez", "email": "mcortez@contoso.com", "phone": "+49-89-555-0104" },
+      "location": { "id": "LOC-MUC", "name": "Munich", "country": "DE" }
+    },
+    {
+      "workerId": "21005",
+      "company": { "id": "CMP-002", "name": "Contoso GmbH" },
+      "contact": { "name": "Anoop Sharma", "email": "asharma@contoso.com", "phone": "+49-89-555-0105" },
+      "location": { "id": "LOC-REMOTE", "name": "Remote", "country": "DE" }
+    },
+    {
+      "workerId": "21006",
+      "company": { "id": "CMP-001", "name": "Contoso Ltd" },
+      "contact": { "name": "Emma Wallace", "email": "ewallace@contoso.com", "phone": "+1-415-555-0106" },
+      "location": { "id": "LOC-SF", "name": "San Francisco", "country": "US" }
+    }
+  ]
+}
