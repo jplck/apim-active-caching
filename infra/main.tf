@@ -68,12 +68,16 @@ resource "azurerm_api_management_redis_cache" "this" {
 }
 
 # Named values shared by the policies (single source of truth via TF vars).
+# ponytail: CacheKey is no longer used (the active-cache fragment keys on context.Api.Id),
+# but it's kept so applying this change doesn't try to DELETE it while the live workers
+# policy still references {{CacheKey}} — APIM rejects that with a 400. Harmless orphan;
+# delete it in a later apply once the fragment-based policy is live.
 resource "azurerm_api_management_named_value" "cache_key" {
   name                = "CacheKey"
   resource_group_name = azurerm_resource_group.this.name
   api_management_name = azurerm_api_management.this.name
   display_name        = "CacheKey"
-  value               = var.cache_key
+  value               = "workers-all"
 }
 
 resource "azurerm_api_management_named_value" "cache_ttl" {
@@ -102,6 +106,20 @@ resource "azurerm_api_management_named_value" "refresh_token" {
   display_name        = "RefreshToken"
   value               = random_password.refresh_token.result
   secret              = true
+}
+
+# Reusable caching logic. Any API includes it with <include-fragment fragment-id="active-cache" />
+# after setting a "backendUrl" variable; the cache key is context.Api.Id (unique per API).
+resource "azurerm_api_management_policy_fragment" "active_cache" {
+  api_management_id = azurerm_api_management.this.id
+  name              = "active-cache"
+  format            = "xml"
+  value             = file("${path.module}/policies/active-cache.fragment.xml")
+  depends_on = [
+    azurerm_api_management_named_value.cache_ttl,
+    azurerm_api_management_named_value.refresh_token,
+    azurerm_api_management_redis_cache.this,
+  ]
 }
 
 # ---------------------------------------------------------------------------
@@ -144,6 +162,45 @@ resource "azurerm_api_management_api_policy" "mock" {
 }
 
 # ---------------------------------------------------------------------------
+# API 1b: workday-mock-soap — the same mock as a Workday SOAP (Human_Resources /
+# Get_Workers) endpoint. POST returns a static Get_Workers_Response envelope.
+# Kept alongside the REST mock so both integration styles can be demoed/cached.
+# ---------------------------------------------------------------------------
+resource "azurerm_api_management_api" "mock_soap" {
+  name                  = "workday-mock-soap"
+  resource_group_name   = azurerm_resource_group.this.name
+  api_management_name   = azurerm_api_management.this.name
+  revision              = "1"
+  display_name          = "Workday Mock SOAP API"
+  path                  = "workday-soap"
+  protocols             = ["https"]
+  subscription_required = false
+}
+
+resource "azurerm_api_management_api_operation" "mock_soap_get" {
+  operation_id        = "get-workers"
+  api_name            = azurerm_api_management_api.mock_soap.name
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+  display_name        = "Get_Workers"
+  method              = "POST"
+  url_template        = "/Human_Resources"
+  response {
+    status_code = 200
+  }
+}
+
+resource "azurerm_api_management_api_policy" "mock_soap" {
+  api_name            = azurerm_api_management_api.mock_soap.name
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+  xml_content = templatefile("${path.module}/policies/workday-mock-soap.xml.tftpl", {
+    workers_soap = file("${path.module}/data/workers-soap.xml")
+  })
+  depends_on = [azurerm_api_management_api_operation.mock_soap_get]
+}
+
+# ---------------------------------------------------------------------------
 # API 2: workers — the active-cache endpoint. Serves ONLY from Redis on the read
 # path (HIT/503). A refresh branch, gated by X-Refresh-Token, pulls a full load
 # from Workday and cache-stores it THROUGH APIM (correct key namespace). This is
@@ -181,7 +238,7 @@ resource "azurerm_api_management_api_policy" "workers" {
   xml_content         = file("${path.module}/policies/workers-cache-read.xml")
   depends_on = [
     azurerm_api_management_api_operation.workers_get,
-    azurerm_api_management_named_value.cache_key,
+    azurerm_api_management_policy_fragment.active_cache,
     azurerm_api_management_named_value.cache_ttl,
     azurerm_api_management_named_value.workday_backend_url,
     azurerm_api_management_named_value.refresh_token,

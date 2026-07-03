@@ -70,10 +70,20 @@ Real Workday exposes worker data a few ways; the mock imitates the REST shape:
 All are **paginated** (`total`, `page`/`offset`, `limit`) and require per-tenant auth.
 For this POC the cache holds a **lightweight subset** — `company`, `contact`, and
 `location` per worker — since that is all the consuming API needs.
-`infra/data/workers.json` mirrors the `{ "total", "data": [ worker ] }` REST envelope
-with fields `workerId`, `company` `{id,name}`, `contact` `{name,email,phone}`, and
-`location` `{id,name,country}`. Edit that file to change what the mock (and therefore
-the cache) returns.
+
+Two mocks are deployed so both integration styles can be demoed:
+
+- **REST** — `GET {gateway}/workday-mock/workers` → `infra/data/workers.json`, the
+  `{ "total", "data": [ worker ] }` envelope with `workerId`, `company` `{id,name}`,
+  `contact` `{name,email,phone}`, `location` `{id,name,country}`. The cached `workers`
+  API pulls its full load from here.
+- **SOAP** — `POST {gateway}/workday-soap/Human_Resources` → `infra/data/workers-soap.xml`,
+  a Workday `Get_Workers_Response` envelope (`urn:com.workday/bsvc`) carrying the same
+  six workers and the same subset. It ignores the request body and returns the canned
+  response — enough to stand in for Workday WWS. Cache it the same way by pointing a
+  second API's `backendUrl` at it via the `active-cache` fragment.
+
+Edit either data file to change what the mock (and therefore the cache) returns.
 
 ## Deploy
 
@@ -148,8 +158,29 @@ curl -s  "$gw/workers"                          # workers served from Redis
 
 Terraform variables (`infra/variables.tf`): `apim_sku` (default `StandardV2_1`),
 `refresh_cron` (`0 2 * * *`, daily full load), `cache_ttl_seconds` (`172800` = 2 days,
-keep > refresh interval), `cache_key` (`workers-all`), `redis_sku` (`Balanced_B0` —
-cheapest Azure Managed Redis).
+keep > refresh interval), `redis_sku` (`Balanced_B0` — cheapest Azure Managed Redis).
+The cache key is derived from the API id (`context.Api.Id`) inside the shared
+`active-cache` policy fragment, so no key needs configuring.
+
+### Use the cheaper Developer SKU
+
+`Developer_1` is the low-cost dev/test tier (single unit, **no SLA**). Set `apim_sku`
+any of these ways — all just feed Terraform's `sku_name`:
+
+```bash
+# infra/terraform.tfvars
+apim_sku = "Developer_1"
+
+# or one-off on the CLI
+terraform -chdir=infra apply -var 'apim_sku=Developer_1'
+
+# or for azd up (Terraform reads TF_VAR_* env vars)
+export TF_VAR_apim_sku="Developer_1"
+```
+
+> ⚠️ `Developer_1` is the classic tier, `StandardV2_1` is v2 — switching between the two
+> **replaces** the APIM instance (new gateway hostname, ~30–45 min, named values + cache
+> config recreated). Pick the SKU on a fresh deploy rather than flipping a live one.
 
 ## Offline check
 

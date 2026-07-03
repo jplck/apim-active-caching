@@ -1,70 +1,13 @@
 <!--
-  Active-cache endpoint. Two paths, no separate cache-admin API needed:
-
-  1. Refresh (scheduled job only, gated by the X-Refresh-Token header): pulls a full
-     load from the Workday backend and stores it in the external Redis cache via
-     cache-store-value. The write goes THROUGH APIM so it lands under APIM's internal
-     (prefixed, undocumented) cache-key namespace: the same one the read path reads.
-  2. Read (public): serves employee data straight from Redis. A MISS returns 503; the
-     request path never calls Workday, which is the whole point of *active* caching.
-
-  Pattern from https://learn.microsoft.com/azure/api-management/api-management-sample-cache-by-key
-  (lookup, then on miss send-request, then cache-store), but the store is gated on the
-  refresh token instead of a user miss, so users are never served from a cold-fill call.
+  Workers active-cache endpoint. All caching logic lives in the reusable "active-cache"
+  policy fragment; this API only declares WHICH backend to pull a full load from.
+  Add another cached API the same way: set its own backendUrl, then include the fragment.
 -->
 <policies>
   <inbound>
     <base />
-    <choose>
-      <when condition="@(context.Request.Headers.GetValueOrDefault(&quot;X-Refresh-Token&quot;,&quot;&quot;) == &quot;{{RefreshToken}}&quot;)">
-        <send-request mode="new" response-variable-name="workdayResponse" timeout="20" ignore-error="false">
-          <set-url>{{WorkdayBackendUrl}}</set-url>
-          <set-method>GET</set-method>
-        </send-request>
-        <set-variable name="workers" value="@(((IResponse)context.Variables[&quot;workdayResponse&quot;]).Body.As&lt;string&gt;())" />
-        <cache-store-value key="{{CacheKey}}" value="@((string)context.Variables[&quot;workers&quot;])" duration="{{CacheTtlSeconds}}" caching-type="external" />
-        <return-response>
-          <set-status code="200" reason="OK" />
-          <set-header name="Content-Type" exists-action="override">
-            <value>application/json</value>
-          </set-header>
-          <set-header name="X-Cache" exists-action="override">
-            <value>REFRESHED</value>
-          </set-header>
-          <set-body>@((string)context.Variables["workers"])</set-body>
-        </return-response>
-      </when>
-    </choose>
-    <cache-lookup-value key="{{CacheKey}}" variable-name="cachedWorkers" caching-type="external" />
-    <choose>
-      <when condition="@(context.Variables.ContainsKey(&quot;cachedWorkers&quot;))">
-        <return-response>
-          <set-status code="200" reason="OK" />
-          <set-header name="Content-Type" exists-action="override">
-            <value>application/json</value>
-          </set-header>
-          <set-header name="X-Cache" exists-action="override">
-            <value>HIT</value>
-          </set-header>
-          <set-body>@((string)context.Variables["cachedWorkers"])</set-body>
-        </return-response>
-      </when>
-      <otherwise>
-        <return-response>
-          <set-status code="503" reason="Service Unavailable" />
-          <set-header name="Content-Type" exists-action="override">
-            <value>application/json</value>
-          </set-header>
-          <set-header name="X-Cache" exists-action="override">
-            <value>MISS</value>
-          </set-header>
-          <set-header name="Retry-After" exists-action="override">
-            <value>60</value>
-          </set-header>
-          <set-body>{"cached": false, "message": "Workers not in cache yet. The refresher Container Apps Job pre-fills Redis on a schedule."}</set-body>
-        </return-response>
-      </otherwise>
-    </choose>
+    <set-variable name="backendUrl" value="{{WorkdayBackendUrl}}" />
+    <include-fragment fragment-id="active-cache" />
   </inbound>
   <backend>
     <base />

@@ -36,12 +36,6 @@ variable "redis_sku" {
   default     = "Balanced_B0"
 }
 
-variable "cache_key" {
-  type        = string
-  description = "Single source of truth for the cache key APIM reads and the refresher writes."
-  default     = "workers-all"
-}
-
 variable "cache_ttl_seconds" {
   type        = number
   description = "External-cache TTL. Keep > refresh interval so the cache never empties between runs (default 2 days > daily refresh)."

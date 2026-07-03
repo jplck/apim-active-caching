@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<env:Envelope xmlns:env="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wd="urn:com.workday/bsvc">
+  <env:Body>
+    <wd:Get_Workers_Response wd:version="v42.0">
+      <wd:Response_Results>
+        <wd:Total_Results>6</wd:Total_Results>
+        <wd:Total_Pages>1</wd:Total_Pages>
+        <wd:Page_Results>6</wd:Page_Results>
+        <wd:Page>1</wd:Page>
+      </wd:Response_Results>
+      <wd:Response_Data>
+        <wd:Worker>
+          <wd:Worker_Reference><wd:ID wd:type="Employee_ID">21001</wd:ID></wd:Worker_Reference>
+          <wd:Worker_Data>
+            <wd:Personal_Data>
+              <wd:Name_Data><wd:Formatted_Name>Logan McNeil</wd:Formatted_Name></wd:Name_Data>
+              <wd:Contact_Data>
+                <wd:Email_Address_Data><wd:Email_Address>lmcneil@contoso.com</wd:Email_Address></wd:Email_Address_Data>
+                <wd:Phone_Data><wd:Phone_Number>+1-415-555-0101</wd:Phone_Number></wd:Phone_Data>
+              </wd:Contact_Data>
+            </wd:Personal_Data>
+            <wd:Organization_Data>
+              <wd:Company_Reference><wd:ID wd:type="Company_Reference_ID">CMP-001</wd:ID></wd:Company_Reference>
+              <wd:Company_Name>Contoso Ltd</wd:Company_Name>
+            </wd:Organization_Data>
+            <wd:Location_Data>
+              <wd:Location_Reference><wd:ID wd:type="Location_ID">LOC-SF</wd:ID></wd:Location_Reference>
+              <wd:Location_Name>San Francisco</wd:Location_Name>
+              <wd:Country_Reference><wd:ID wd:type="ISO_3166-1_Alpha-2_Code">US</wd:ID></wd:Country_Reference>
+            </wd:Location_Data>
+          </wd:Worker_Data>
+        </wd:Worker>
+        <wd:Worker>
+          <wd:Worker_Reference><wd:ID wd:type="Employee_ID">21002</wd:ID></wd:Worker_Reference>
+          <wd:Worker_Data>
+            <wd:Personal_Data>
+              <wd:Name_Data><wd:Formatted_Name>Steve Morgan</wd:Formatted_Name></wd:Name_Data>
+              <wd:Contact_Data>
+                <wd:Email_Address_Data><wd:Email_Address>smorgan@contoso.com</wd:Email_Address></wd:Email_Address_Data>
+                <wd:Phone_Data><wd:Phone_Number>+1-415-555-0102</wd:Phone_Number></wd:Phone_Data>
+              </wd:Contact_Data>
+            </wd:Personal_Data>
+            <wd:Organization_Data>
+              <wd:Company_Reference><wd:ID wd:type="Company_Reference_ID">CMP-001</wd:ID></wd:Company_Reference>
+              <wd:Company_Name>Contoso Ltd</wd:Company_Name>
+            </wd:Organization_Data>
+            <wd:Location_Data>
+              <wd:Location_Reference><wd:ID wd:type="Location_ID">LOC-SF</wd:ID></wd:Location_Reference>
+              <wd:Location_Name>San Francisco</wd:Location_Name>
+              <wd:Country_Reference><wd:ID wd:type="ISO_3166-1_Alpha-2_Code">US</wd:ID></wd:Country_Reference>
+            </wd:Location_Data>
+          </wd:Worker_Data>
+        </wd:Worker>
+        <wd:Worker>
+          <wd:Worker_Reference><wd:ID wd:type="Employee_ID">21003</wd:ID></wd:Worker_Reference>
+          <wd:Worker_Data>
+            <wd:Personal_Data>
+              <wd:Name_Data><wd:Formatted_Name>Oliver Reynolds</wd:Formatted_Name></wd:Name_Data>
+              <wd:Contact_Data>
+                <wd:Email_Address_Data><wd:Email_Address>oreynolds@contoso.com</wd:Email_Address></wd:Email_Address_Data>
+                <wd:Phone_Data><wd:Phone_Number>+1-212-555-0103</wd:Phone_Number></wd:Phone_Data>
+              </wd:Contact_Data>
+            </wd:Personal_Data>
+            <wd:Organization_Data>
+              <wd:Company_Reference><wd:ID wd:type="Company_Reference_ID">CMP-001</wd:ID></wd:Company_Reference>
+              <wd:Company_Name>Contoso Ltd</wd:Company_Name>
+            </wd:Organization_Data>
+            <wd:Location_Data>
+              <wd:Location_Reference><wd:ID wd:type="Location_ID">LOC-NYC</wd:ID></wd:Location_Reference>
+              <wd:Location_Name>New York</wd:Location_Name>
+              <wd:Country_Reference><wd:ID wd:type="ISO_3166-1_Alpha-2_Code">US</wd:ID></wd:Country_Reference>
+            </wd:Location_Data>
+          </wd:Worker_Data>
+        </wd:Worker>
+        <wd:Worker>
+          <wd:Worker_Reference><wd:ID wd:type="Employee_ID">21004</wd:ID></wd:Worker_Reference>
+          <wd:Worker_Data>
+            <wd:Personal_Data>
+              <wd:Name_Data><wd:Formatted_Name>Maria Cortez</wd:Formatted_Name></wd:Name_Data>
+              <wd:Contact_Data>
+                <wd:Email_Address_Data><wd:Email_Address>mcortez@contoso.com</wd:Email_Address></wd:Email_Address_Data>
+                <wd:Phone_Data><wd:Phone_Number>+49-89-555-0104</wd:Phone_Number></wd:Phone_Data>
+              </wd:Contact_Data>
+            </wd:Personal_Data>
+            <wd:Organization_Data>
+              <wd:Company_Reference><wd:ID wd:type="Company_Reference_ID">CMP-002</wd:ID></wd:Company_Reference>
+              <wd:Company_Name>Contoso GmbH</wd:Company_Name>
+            </wd:Organization_Data>
+            <wd:Location_Data>
+              <wd:Location_Reference><wd:ID wd:type="Location_ID">LOC-MUC</wd:ID></wd:Location_Reference>
+              <wd:Location_Name>Munich</wd:Location_Name>
+              <wd:Country_Reference><wd:ID wd:type="ISO_3166-1_Alpha-2_Code">DE</wd:ID></wd:Country_Reference>
+            </wd:Location_Data>
+          </wd:Worker_Data>
+        </wd:Worker>
+        <wd:Worker>
+          <wd:Worker_Reference><wd:ID wd:type="Employee_ID">21005</wd:ID></wd:Worker_Reference>
+          <wd:Worker_Data>
+            <wd:Personal_Data>
+              <wd:Name_Data><wd:Formatted_Name>Anoop Sharma</wd:Formatted_Name></wd:Name_Data>
+              <wd:Contact_Data>
+                <wd:Email_Address_Data><wd:Email_Address>asharma@contoso.com</wd:Email_Address></wd:Email_Address_Data>
+                <wd:Phone_Data><wd:Phone_Number>+49-89-555-0105</wd:Phone_Number></wd:Phone_Data>
+              </wd:Contact_Data>
+            </wd:Personal_Data>
+            <wd:Organization_Data>
+              <wd:Company_Reference><wd:ID wd:type="Company_Reference_ID">CMP-002</wd:ID></wd:Company_Reference>
+              <wd:Company_Name>Contoso GmbH</wd:Company_Name>
+            </wd:Organization_Data>
+            <wd:Location_Data>
+              <wd:Location_Reference><wd:ID wd:type="Location_ID">LOC-REMOTE</wd:ID></wd:Location_Reference>
+              <wd:Location_Name>Remote</wd:Location_Name>
+              <wd:Country_Reference><wd:ID wd:type="ISO_3166-1_Alpha-2_Code">DE</wd:ID></wd:Country_Reference>
+            </wd:Location_Data>
+          </wd:Worker_Data>
+        </wd:Worker>
+        <wd:Worker>
+          <wd:Worker_Reference><wd:ID wd:type="Employee_ID">21006</wd:ID></wd:Worker_Reference>
+          <wd:Worker_Data>
+            <wd:Personal_Data>
+              <wd:Name_Data><wd:Formatted_Name>Emma Wallace</wd:Formatted_Name></wd:Name_Data>
+              <wd:Contact_Data>
+                <wd:Email_Address_Data><wd:Email_Address>ewallace@contoso.com</wd:Email_Address></wd:Email_Address_Data>
+                <wd:Phone_Data><wd:Phone_Number>+1-415-555-0106</wd:Phone_Number></wd:Phone_Data>
+              </wd:Contact_Data>
+            </wd:Personal_Data>
+            <wd:Organization_Data>
+              <wd:Company_Reference><wd:ID wd:type="Company_Reference_ID">CMP-001</wd:ID></wd:Company_Reference>
+              <wd:Company_Name>Contoso Ltd</wd:Company_Name>
+            </wd:Organization_Data>
+            <wd:Location_Data>
+              <wd:Location_Reference><wd:ID wd:type="Location_ID">LOC-SF</wd:ID></wd:Location_Reference>
+              <wd:Location_Name>San Francisco</wd:Location_Name>
+              <wd:Country_Reference><wd:ID wd:type="ISO_3166-1_Alpha-2_Code">US</wd:ID></wd:Country_Reference>
+            </wd:Location_Data>
+          </wd:Worker_Data>
+        </wd:Worker>
+      </wd:Response_Data>
+    </wd:Get_Workers_Response>
+  </env:Body>
+</env:Envelope>

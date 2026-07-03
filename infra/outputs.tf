@@ -19,6 +19,11 @@ output "WORKDAY_MOCK_ENDPOINT" {
   value = "${azurerm_api_management.this.gateway_url}/workday-mock/workers"
 }
 
+output "WORKDAY_SOAP_MOCK_ENDPOINT" {
+  description = "Mocked Workday SOAP Get_Workers endpoint (POST a SOAP envelope)."
+  value       = "${azurerm_api_management.this.gateway_url}/workday-soap/Human_Resources"
+}
+
 output "REFRESHER_JOB_NAME" {
   value = azurerm_container_app_job.refresher.name
 }

@@ -1,0 +1,28 @@
+<!--
+  Mocked Workday SOAP "Human_Resources / Get_Workers" endpoint. POST returns a static
+  Get_Workers_Response envelope from infra/data/workers-soap.xml (same 6 workers as the
+  REST mock, same company/contact/location subset).
+  ponytail: static canned response, ignores the request body — enough to stand in for
+  Workday WWS in a POC. Swap for a WSDL-imported SOAP API + real backend to go live.
+-->
+<policies>
+  <inbound>
+    <base />
+    <return-response>
+      <set-status code="200" reason="OK" />
+      <set-header name="Content-Type" exists-action="override">
+        <value>text/xml; charset=utf-8</value>
+      </set-header>
+      <set-body><![CDATA[${workers_soap}]]></set-body>
+    </return-response>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>
