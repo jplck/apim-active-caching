@@ -4,20 +4,31 @@ Azure API Management **Standard v2** serves employee data from an **external
 Azure Managed Redis** that is **actively pre-filled** on a schedule by an Azure
 **Container Apps Job**. The downstream system is **Workday**, mocked inside APIM.
 
+```mermaid
+flowchart LR
+    job["Refresher<br/>(Container Apps Job, cron daily)<br/>alpine/curl + inline script"]
+    client(["Client"])
+
+    subgraph apim["Azure API Management (Standard v2)"]
+        workers["workers API<br/>GET /workers"]
+        mock["workday-mock API<br/>GET /workday-mock/workers<br/>(mocked Workday)"]
+    end
+
+    redis[("Azure Managed Redis<br/>external cache")]
+
+    %% Refresh (write) path
+    job -- "GET /workers<br/>X-Refresh-Token" --> workers
+    workers -. "refresh branch:<br/>send-request (full load)" .-> mock
+    workers == "cache-store-value" ==> redis
+
+    %% Read path
+    client -- "GET /workers" --> workers
+    redis == "cache-lookup-value" ==> workers
+    workers -- "HIT → 200 (X-Cache: HIT)<br/>MISS → 503 (X-Cache: MISS)" --> client
 ```
-                          cron (daily)
-  ┌────────────────────┐  (Container Apps Job)   ┌──────────────────────────────────┐
-  │  refresher (curl)  │                         │ APIM ▸ workers (GET)             │
-  │  alpine/curl image │ ── GET /workers ──────► │   X-Refresh-Token present?       │
-  │  inline script     │    X-Refresh-Token      │     └► send-request ▸ workday-mock│──┐ full load
-  └────────────────────┘                         │        cache-store-value (extern)│  │ from Workday
-                                                 └──────────────────────────────────┘  │  (mocked)
-                                                                    │                   ▼
-    client ── GET /workers ──►  APIM ▸ workers (GET) ── cache-lookup-value ──►  Azure Managed Redis
-                                          │                 (external)
-                                          └── HIT → 200 (X-Cache: HIT) served from Redis, Workday never called
-                                              MISS → 503 (X-Cache: MISS)  ← the point of *active* caching
-```
+
+_Solid double arrows = cache I/O (both through APIM, so keys share APIM's namespace).
+Dotted = the refresh-only backend pull._
 
 The **same `workers` API** does both jobs. A normal client `GET /workers` only reads
 Redis (HIT/503). When the scheduled job calls `GET /workers` **with the secret
@@ -92,9 +103,33 @@ Both paths use the same Terraform in `infra/`. azd only injects
 
 ```bash
 scripts/smoke-test.sh     # MISS → trigger job → HIT, all via Terraform outputs
+scripts/flush-cache.sh    # FLUSHALL the Redis (installs redis-cli if needed) to force a MISS/503
 ```
 
-Or manually, using outputs from `terraform output`:
+### Flush → 503 → refresh job → HIT (the failure/recovery test)
+
+This proves the API serves *only* from cache: empty the Redis, watch it fail, run
+the refresher job, watch it recover.
+
+```bash
+gw=$(terraform -chdir=infra output -raw APIM_GATEWAY_URL)
+rg=$(terraform -chdir=infra output -raw RESOURCE_GROUP)
+job=$(terraform -chdir=infra output -raw REFRESHER_JOB_NAME)
+
+# 1. Empty the cache
+scripts/flush-cache.sh
+curl -si "$gw/workers" | grep -i x-cache        # X-Cache: MISS  → HTTP 503 (no data)
+
+# 2. Run the refresher job on demand (same thing the daily cron does)
+az containerapp job start -g "$rg" --name "$job"
+az containerapp job execution list -g "$rg" --name "$job" -o table   # wait for Succeeded
+
+# 3. Cache is warm again
+curl -si "$gw/workers" | grep -i x-cache        # X-Cache: HIT  → HTTP 200
+```
+
+Or trigger the refresh without the job, using the token directly (what the job
+does internally):
 
 ```bash
 gw=$(terraform -chdir=infra output -raw APIM_GATEWAY_URL)
