@@ -23,3 +23,8 @@ output "username_secret_name" {
 output "password_secret_name" {
   value = azurerm_key_vault_secret.workday_password.name
 }
+
+# Null when private networking is disabled (no endpoint created).
+output "private_endpoint_id" {
+  value = try(azurerm_private_endpoint.kv[0].id, null)
+}

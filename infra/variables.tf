@@ -86,3 +86,47 @@ variable "entra_admin_object_id" {
   description = "Object id of the Entra principal made Postgres AAD admin (usually the deployer). Null skips admin + DB role bootstrap (e.g. plain terraform validate)."
   default     = null
 }
+
+# --- Private networking (OPTIONAL — plan.md §10) --------------------------
+# All off by default so the public POC path is byte-for-byte unchanged. Flip
+# enable_private_networking to true to stand up the VNet, delegated subnets and
+# privatelink DNS zones, and to push every backend service onto private endpoints.
+# Accepted as a STRING (not bool) so `azd` can prompt for it: azd substitutes
+# infra parameters as strings, and an empty answer to a bool var would fail type
+# conversion. Normalised to a real bool in local.enable_private_networking below.
+# Standalone Terraform users may still pass a bool literal (`true`/`false`) — it
+# is coerced to a string automatically.
+variable "enable_private_networking" {
+  type        = string
+  description = "Master feature flag for the private-networking topology (VNet + private endpoints). Accepts true/false/yes/no/1/0 (empty = false). Default keeps the all-public POC."
+  default     = "false"
+
+  validation {
+    condition     = contains(["", "true", "false", "yes", "no", "1", "0"], lower(trimspace(var.enable_private_networking)))
+    error_message = "enable_private_networking must be one of: true, false, yes, no, 1, 0 (or empty for false)."
+  }
+}
+
+variable "vnet_address_space" {
+  type        = string
+  description = "CIDR for the single VNet when private networking is enabled."
+  default     = "10.20.0.0/16"
+}
+
+variable "apim_integration_subnet_cidr" {
+  type        = string
+  description = "APIM Std v2 outbound VNet integration subnet CIDR (delegated to Microsoft.Web/serverFarms)."
+  default     = "10.20.0.0/24"
+}
+
+variable "aca_infrastructure_subnet_cidr" {
+  type        = string
+  description = "Container Apps environment infrastructure subnet CIDR (delegated to Microsoft.App/environments)."
+  default     = "10.20.4.0/23"
+}
+
+variable "pe_subnet_cidr" {
+  type        = string
+  description = "Private-endpoint subnet CIDR (Postgres/Redis/KeyVault/ACR)."
+  default     = "10.20.8.0/24"
+}

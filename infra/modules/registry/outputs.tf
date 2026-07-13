@@ -9,3 +9,7 @@ output "name" {
 output "login_server" {
   value = azurerm_container_registry.this.login_server
 }
+
+output "private_endpoint_id" {
+  value = try(azurerm_private_endpoint.acr[0].id, null)
+}

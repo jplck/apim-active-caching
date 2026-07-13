@@ -128,6 +128,7 @@ infra/
   provider.tf          # azurerm/random providers (unchanged)
   main.tfvars.json     # azd injects environment_name/location/subscription_id
   modules/
+    network/           # OPTIONAL VNet: subnets, private DNS zones (gated by enable_private_networking)
     naming/            # suffix + base name + tags (random_string) — single source
     keyvault/          # Key Vault + Workday ISU user/pass secrets + access policy/RBAC
     identity/          # user-assigned managed identities (middleware, refresher)
@@ -340,9 +341,15 @@ CREATE TABLE IF NOT EXISTS sync_state (
 - `middleware/` (FastAPI app, Dockerfile, requirements, tests)
 - `refresher/app/…` (rewritten Python ETL), `refresher/Dockerfile`, `refresher/requirements.txt`, `refresher/tests/`
 - `infra/modules/{naming,keyvault,identity,postgres,registry,redis,apim,containerapps}/`
+- `infra/modules/network/` (**optional** private-networking: VNet, 3 subnets, 5 private DNS zones — all gated by `enable_private_networking`, no-op by default)
 
 **Changed**
 - `infra/main.tf` → module composition; `infra/variables.tf` / `outputs.tf` reworked
+- Optional networking wired into root + every service module (see §10): root adds
+  `enable_private_networking` + CIDR vars and `module "network"`; postgres/redis/keyvault/registry
+  each gain a private endpoint + public-access gating; apim gains an inbound PE (Gateway) +
+  documented outbound integration; containerapps gains an internal environment + internal
+  middleware ingress. All flag-gated — default (flag off) is byte-for-byte the public build.
 - `azure.yaml` → add `services:` (+ ACR)
 - `scripts/smoke-test.sh` → test passive-cache MISS→HIT via APIM; add a Postgres seed/verify helper
 - `README.md` → new architecture, new mermaid, new deploy/test steps
@@ -383,3 +390,165 @@ CREATE TABLE IF NOT EXISTS sync_state (
 6. `apim` module: OpenAPI import + passive cache policy + keep SOAP mock; remove old fragment/named values.
 7. `azure.yaml` services, `outputs.tf`, `scripts/`, `README.md`.
 8. `terraform validate` / `fmt`; offline refresher test; smoke test doc.
+9. **(Optional, §10)** `network` module + `enable_private_networking` flag: private endpoints
+   for postgres/redis/keyvault/registry, APIM inbound PE + outbound integration, internal
+   Container Apps env. Flag-gated so it can be enabled per-deployment without affecting the
+   default public build.
+
+## 10. Networking — all services private behind APIM (VNet)
+
+> **STATUS: IMPLEMENTED — optional, gated by `enable_private_networking` (default `false`).**
+> This is an optional hardening pass on top of §2–§9. The default build stays all-public;
+> setting `enable_private_networking = true` makes APIM the *only* public entry point and
+> pushes every backend service onto a private VNet. Every resource below is `count`/conditional
+> gated so the flag-off deployment is byte-for-byte the public build (verified: `terraform
+> validate` passes with the flag both off and on).
+>
+> **Known limitation (APIM outbound integration):** azurerm ~>4.0 does **not** yet model
+> Standard v2 *outbound VNet integration* (only classic injection via `virtual_network_type`,
+> which Azure rejects on the v2 SKU). The `apim` module therefore creates the **inbound**
+> private endpoint in Terraform and documents a one-time post-deploy `az` CLI/portal step to
+> enable outbound integration (the `integration_subnet_id` is pre-created and passed in). No
+> `azapi` provider was added. Revisit when azurerm adds native v2 outbound support.
+
+### 10.1 Goal / topology
+
+APIM stays **publicly reachable** for API consumers (public gateway keeps working)
+**and** is reachable **from inside the VNet**. Everything behind APIM — middleware,
+Postgres, Redis, Key Vault, ACR — has **no public endpoint**; it is reachable only
+over the VNet. APIM is the single ingress.
+
+Two independent APIM networking features make this work on **Standard v2** (do not
+conflate them — they are **one-directional and separate**):
+
+| Feature | Direction | Purpose here |
+|---------|-----------|--------------|
+| **Outbound VNet integration** | APIM → backends | APIM calls the **private** middleware (internal ingress) over the VNet. Required. |
+| **Inbound private endpoint** | clients → APIM | Gives APIM a **private IP** so in-VNet clients reach the gateway privately, while **public access stays enabled** (we do NOT set `publicNetworkAccess=Disabled`). Optional but requested ("also accessible from within a vnet"). |
+
+> **Why we need outbound integration even though "everything is in the VNet":**
+> On Standard v2, APIM is **never injected into your VNet** — its compute stays in the
+> managed service. The inbound private endpoint is only a NIC that projects APIM's
+> *inbound* gateway into a subnet (client → APIM); it does **not** put APIM's *outbound*
+> traffic on the VNet. So without outbound VNet integration, APIM has no route to the
+> middleware's private IP and the backend call fails. Per
+> [virtual-network-concepts](https://learn.microsoft.com/azure/api-management/virtual-network-concepts),
+> the inbound private endpoint is *"only inbound"* and v2 VNet integration is
+> *"outbound request traffic … to a delegated subnet"* — two halves, neither substitutes
+> for the other.
+>
+> The "same VNet ⇒ one feature, both directions" intuition only holds for **VNet
+> injection** (classic Developer/Premium and **Premium v2**), where APIM's compute is
+> genuinely in your subnet. Standard v2 does not offer injection; it splits the
+> capability into the two gateway-only features above. **Alternative:** if a single
+> injected model (inbound + outbound on the VNet, no separate integration) is preferred,
+> use **Premium v2 (VNet injection)** — at Premium v2 cost.
+
+```mermaid
+flowchart LR
+    pub(["Public client"])
+    vclient(["In-VNet client"])
+    subgraph vnet["VNet"]
+        subgraph apimnet["APIM (Standard v2)"]
+            gw["Gateway<br/>public + private IP"]
+        end
+        mw["Middleware CA<br/>internal ingress only"]
+        subgraph pe["Private Endpoints subnet"]
+            pg[("Postgres PE")]
+            rd[("Redis PE")]
+            kv[("Key Vault PE")]
+            acr[("ACR PE")]
+        end
+        job["Refresher Job<br/>(VNet-integrated CA env)"]
+    end
+    pub -- "public gateway" --> gw
+    vclient -- "private endpoint" --> gw
+    gw -- "outbound VNet integration" --> mw
+    mw -- private --> pg
+    job -- private --> pg & kv
+    gw -. "workday-soap mock stays in APIM" .-> gw
+```
+
+### 10.2 VNet + subnets (new `network` module)
+
+One VNet (e.g. `10.20.0.0/16`) with **delegated** subnets — each Azure service that
+"injects" needs its own delegated subnet, and private endpoints need a plain subnet:
+
+| Subnet | CIDR (example) | Delegation / use |
+|--------|----------------|------------------|
+| `snet-apim-out` | `10.20.0.0/24` | APIM Std v2 **outbound VNet integration** — delegation `Microsoft.Web/serverFarms`. |
+| `snet-aca` | `10.20.4.0/23` | Container Apps environment **infrastructure** subnet (middleware + refresher). |
+| `snet-pe` | `10.20.8.0/24` | **Private endpoints** for Postgres/Redis/KV/ACR (no delegation). |
+| `snet-pg` *(alt)* | `10.20.9.0/28` | Only if Postgres uses **VNet-integration** mode instead of a PE — delegation `Microsoft.DBforPostgreSQL/flexibleServers`. |
+
+Plus **Private DNS zones** (linked to the VNet) so private FQDNs resolve to private IPs:
+`privatelink.azure-api.net` (APIM), `privatelink.postgres.database.azure.com`,
+`privatelink.redis.azure.net` (Managed Redis / redisEnterprise),
+`privatelink.vaultcore.azure.net` (Key Vault), `privatelink.azurecr.io` (ACR).
+
+### 10.3 Per-service changes
+
+- **APIM (`apim` module)** — add **outbound VNet integration** into `snet-apim-out`
+  (Std v2: the `virtual_network_type`/`virtual_network_configuration` for v2 outbound
+  integration). Add an **inbound private endpoint** (sub-resource `Gateway`) in
+  `snet-pe` + `privatelink.azure-api.net` A record. **Keep public access ON** (do not
+  patch `publicNetworkAccess=Disabled`). Note: the private endpoint covers the
+  **gateway only** on Std v2, not the management/portal endpoints.
+- **Middleware (`containerapps` module)** — move the Container Apps environment onto
+  the VNet (`infrastructure_subnet_id = snet-aca`) and set the environment to
+  **internal** (`internal_load_balancer_enabled = true`); middleware ingress becomes
+  **internal** (VNet-only). APIM reaches it via outbound integration + the ACA
+  environment's private DNS. The refresher job runs in the same VNet-integrated env,
+  so its outbound calls (Postgres, Key Vault, Workday) traverse the VNet.
+- **Postgres (`postgres` module)** — disable public network access; use **either** a
+  **private endpoint** in `snet-pe` (`privatelink.postgres.database.azure.com`) **or**
+  private-access VNet integration via `snet-pg`. PE is the cleaner fit alongside the
+  others. Middleware + refresher already resolve `PGHOST` — it now resolves to a
+  private IP. (MI auth is unchanged.)
+- **Redis (`redis` module)** — add a **private endpoint** (`redisEnterprise`) in
+  `snet-pe` + `privatelink.redis.azure.net`; set `public_network_access_enabled = false`.
+  APIM's external-cache connection string now targets the private FQDN:10000.
+- **Key Vault (`keyvault` module)** — add a **private endpoint** + 
+  `privatelink.vaultcore.azure.net`; `public_network_access_enabled = false`. The
+  refresher resolves KV secret references over the VNet (Container Apps platform +
+  the refresher identity). Keep the deployer's access working during `apply` (see
+  caveats).
+- **ACR (`registry` module)** — add a **private endpoint** + `privatelink.azurecr.io`;
+  `public_network_access_enabled = false`. Container Apps pull images over the VNet.
+  **Caveat:** `azd`/`az acr build` pushes need network reachability — either build from
+  a VNet-connected agent, temporarily allow the deployer IP, or use ACR Tasks. Simplest
+  for a POC: keep ACR public during the initial `azd up`, then flip it private.
+
+### 10.4 Terraform / variable changes
+
+- New **`network`** module (VNet, subnets, delegations, private DNS zones + VNet links);
+  outputs subnet ids + DNS zone ids consumed by the other modules.
+- Each affected module gains inputs (`subnet_id`, `private_dns_zone_id`,
+  `enable_private_networking`) and creates its `azurerm_private_endpoint` +
+  `azurerm_private_dns_a_record` (or a `private_dns_zone_group`).
+- **Feature flag:** a root `var.enable_private_networking` gates the whole thing with
+  `count`/`for_each`, so the public POC path keeps working and the private topology is
+  opt-in. The variable is declared as a **string** (accepts `true/false/yes/no/1/0`,
+  empty ⇒ false) normalised to a real bool in `local.enable_private_networking`, so
+  **`azd` can prompt for it**: `infra/main.tfvars.json` maps it to
+  `"${ENABLE_PRIVATE_NETWORKING}"`, and azd asks on `azd up`/`provision` when the value
+  isn't already in the azd environment (`azd env set ENABLE_PRIVATE_NETWORKING true|false`
+  to pin/skip the prompt). Add `var.vnet_address_space` + subnet CIDRs.
+- Root `main.tf` wires `network` first, then passes subnet/DNS ids into
+  `apim`/`containerapps`/`postgres`/`redis`/`keyvault`/`registry`.
+
+### 10.5 Caveats / ordering
+
+1. **APIM stays public** — we intentionally do **not** disable public network access
+   (that Std v2 switch requires a post-create PATCH and would break "public API access").
+   The private endpoint is *additive*.
+2. **Std v2 private endpoint = gateway only** — management/dev-portal aren't covered;
+   Premium v2 (VNet injection) is the option if those must be private too.
+3. **Bootstrap reachability** — Postgres Entra-role bootstrap (`local-exec psql`, §8.3)
+   and ACR image push both need a network path at `apply` time. Options: run the deploy
+   from a VNet-connected runner/jumpbox, temporarily allow the deployer IP, or stage the
+   flip (public first `azd up`, then enable `enable_private_networking`).
+4. **Cost/SKU** — VNet integration + private endpoints + private DNS add resources;
+   Managed Redis / Postgres / KV / ACR private endpoints each bill separately.
+5. **DNS is the usual failure point** — every private FQDN must resolve via its linked
+   `privatelink.*` zone from inside the VNet, or connections silently fall back/fail.

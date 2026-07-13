@@ -20,6 +20,21 @@ resource "azurerm_key_vault" "this" {
   sku_name                   = "standard"
   rbac_authorization_enabled = true
   tags                       = var.tags
+
+  # Flag-off (default) keeps public access on; flag-on turns it off so the data
+  # plane is reachable only through the private endpoint below.
+  public_network_access_enabled = !var.enable_private_networking
+
+  # Only emitted when private: deny public traffic while still letting trusted
+  # Azure services through (bypass). The dynamic block is absent when disabled,
+  # so today's behavior (no ACLs, implicit Allow) is preserved exactly.
+  dynamic "network_acls" {
+    for_each = var.enable_private_networking ? [1] : []
+    content {
+      default_action = "Deny"
+      bypass         = "AzureServices"
+    }
+  }
 }
 
 # Let the deploying principal write the secret material (RBAC vaults require an
@@ -53,4 +68,37 @@ resource "azurerm_key_vault_secret" "workday_password" {
   key_vault_id = azurerm_key_vault.this.id
 
   depends_on = [azurerm_role_assignment.deployer_secrets_officer]
+}
+
+# Private endpoint projecting the vault into snet-pe and wiring the
+# privatelink.vaultcore.azure.net zone so in-VNet callers resolve a private IP.
+# Only created when private networking is enabled.
+#
+# APPLY-TIME CAVEAT (see plan.md §10.5): once public_network_access_enabled=false
+# and network_acls default_action=Deny are in effect, both the deployer that
+# writes the two workday-* secrets above and the Container Apps platform that
+# resolves the KV secret references must reach the vault over the VNet through
+# this endpoint. bypass=AzureServices lets trusted Azure services in, but the
+# Terraform deployer may still need to run from a VNet-connected runner (or be
+# granted a temporary network allow) for the secret writes to succeed. Secret
+# creation itself is deliberately left unchanged.
+resource "azurerm_private_endpoint" "kv" {
+  count               = var.enable_private_networking ? 1 : 0
+  name                = "pe-kv-${var.token}"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  subnet_id           = var.private_endpoint_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-kv-${var.token}"
+    private_connection_resource_id = azurerm_key_vault.this.id
+    is_manual_connection           = false
+    subresource_names              = ["vault"]
+  }
+
+  private_dns_zone_group {
+    name                 = "keyvault"
+    private_dns_zone_ids = [var.private_dns_zone_id]
+  }
 }

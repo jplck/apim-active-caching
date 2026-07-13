@@ -27,3 +27,8 @@ output "refresher_role" {
   description = "PG role name the refresher connects as (PGUSER)."
   value       = local.refresher_role
 }
+
+output "private_endpoint_id" {
+  description = "Id of the Postgres private endpoint, or null when private networking is off."
+  value       = try(azurerm_private_endpoint.pg[0].id, null)
+}

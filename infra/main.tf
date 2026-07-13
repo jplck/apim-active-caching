@@ -28,6 +28,24 @@ module "identity" {
   tags                = module.naming.tags
 }
 
+# Private-networking foundation (OPTIONAL — plan.md §10). Inert unless
+# var.enable_private_networking is true; every output is null when off, so the
+# service modules below receive nulls and keep their public behaviour. Declared
+# before the service modules because they consume its subnet + DNS zone ids.
+module "network" {
+  source              = "./modules/network"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  base                = module.naming.base
+  tags                = module.naming.tags
+
+  enable_private_networking      = local.enable_private_networking
+  vnet_address_space             = var.vnet_address_space
+  apim_integration_subnet_cidr   = var.apim_integration_subnet_cidr
+  aca_infrastructure_subnet_cidr = var.aca_infrastructure_subnet_cidr
+  pe_subnet_cidr                 = var.pe_subnet_cidr
+}
+
 module "keyvault" {
   source                 = "./modules/keyvault"
   resource_group_name    = azurerm_resource_group.this.name
@@ -37,6 +55,10 @@ module "keyvault" {
   workday_username       = var.workday_username
   workday_password       = var.workday_password
   refresher_principal_id = module.identity.refresher_principal_id
+
+  enable_private_networking  = local.enable_private_networking
+  private_endpoint_subnet_id = module.network.pe_subnet_id
+  private_dns_zone_id        = module.network.dns_zone_id_keyvault
 }
 
 module "registry" {
@@ -47,6 +69,10 @@ module "registry" {
   tags                    = module.naming.tags
   middleware_principal_id = module.identity.middleware_principal_id
   refresher_principal_id  = module.identity.refresher_principal_id
+
+  enable_private_networking  = local.enable_private_networking
+  private_endpoint_subnet_id = module.network.pe_subnet_id
+  private_dns_zone_id        = module.network.dns_zone_id_acr
 }
 
 module "redis" {
@@ -56,6 +82,10 @@ module "redis" {
   base                = module.naming.base
   tags                = module.naming.tags
   redis_sku           = var.redis_sku
+
+  enable_private_networking  = local.enable_private_networking
+  private_endpoint_subnet_id = module.network.pe_subnet_id
+  private_dns_zone_id        = module.network.dns_zone_id_redis
 }
 
 module "postgres" {
@@ -70,6 +100,10 @@ module "postgres" {
   middleware_principal_id = module.identity.middleware_principal_id
   refresher_principal_id  = module.identity.refresher_principal_id
   entra_admin_object_id   = var.entra_admin_object_id
+
+  enable_private_networking  = local.enable_private_networking
+  private_endpoint_subnet_id = module.network.pe_subnet_id
+  private_dns_zone_id        = module.network.dns_zone_id_postgres
 }
 
 # The refresher's Workday source. When workday_soap_url is empty we fall back to
@@ -77,6 +111,8 @@ module "postgres" {
 # (apim-<base>.azure-api.net) rather than from module.apim's output, which breaks
 # the containerapps -> apim -> containerapps cycle (apim needs the middleware URL).
 locals {
+  # Normalise the string flag (azd passes it as a string) into a real bool.
+  enable_private_networking  = contains(["true", "yes", "1"], lower(trimspace(var.enable_private_networking)))
   apim_gateway_url           = "https://apim-${module.naming.base}.azure-api.net"
   workday_soap_url_effective = var.workday_soap_url != "" ? var.workday_soap_url : "${local.apim_gateway_url}/workday-soap/Human_Resources"
 }
@@ -107,6 +143,9 @@ module "containerapps" {
 
   refresh_cron     = var.refresh_cron
   workday_soap_url = local.workday_soap_url_effective
+
+  enable_private_networking = local.enable_private_networking
+  infrastructure_subnet_id  = module.network.aca_infrastructure_subnet_id
 }
 
 module "apim" {
@@ -124,4 +163,9 @@ module "apim" {
   redis_port     = module.redis.port
 
   middleware_url = module.containerapps.middleware_url
+
+  enable_private_networking  = local.enable_private_networking
+  private_endpoint_subnet_id = module.network.pe_subnet_id
+  apim_private_dns_zone_id   = module.network.dns_zone_id_apim
+  integration_subnet_id      = module.network.apim_integration_subnet_id
 }

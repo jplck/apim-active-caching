@@ -57,3 +57,21 @@ variable "entra_admin_principal_type" {
   default     = "User"
   description = "PG AAD admin principal type: User, Group or ServicePrincipal."
 }
+
+variable "enable_private_networking" {
+  type        = bool
+  default     = false
+  description = "Opt-in private networking: create a private endpoint and disable public access. Default keeps the all-public POC path a no-op."
+}
+
+variable "private_endpoint_subnet_id" {
+  type        = string
+  default     = null
+  description = "Subnet id (snet-pe) for the Postgres private endpoint. Required when enable_private_networking is true."
+}
+
+variable "private_dns_zone_id" {
+  type        = string
+  default     = null
+  description = "privatelink.postgres.database.azure.com private DNS zone id for the PE zone group. Required when enable_private_networking is true."
+}

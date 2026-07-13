@@ -34,6 +34,15 @@ resource "azurerm_postgresql_flexible_server" "this" {
   storage_mb          = var.postgres_storage_mb
   zone                = "1"
 
+  # When private networking is on, turn the public endpoint OFF and reach the
+  # server exclusively through the private endpoint below. We deliberately leave
+  # the VNet-integration args (delegated_subnet_id / private_dns_zone_id) UNSET
+  # so the server stays in private-endpoint mode, not delegated-subnet mode.
+  # CAVEAT (apply-time, plan §10.5.3): with public access off, the Entra role
+  # bootstrap (null_resource.entra_db_roles local-exec psql) can only reach the
+  # server from within/peered to the VNet. The bootstrap logic is unchanged.
+  public_network_access_enabled = !var.enable_private_networking
+
   authentication {
     password_auth_enabled         = false
     active_directory_auth_enabled = true
@@ -52,11 +61,41 @@ resource "azurerm_postgresql_flexible_server_database" "workday" {
 
 # Allow the public endpoint to be reached from Azure-internal services (the
 # Container Apps). 0.0.0.0-0.0.0.0 is the special "Allow Azure services" range.
+# Only meaningful with public access on, so it is skipped when private.
 resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
+  count            = var.enable_private_networking ? 0 : 1
   name             = "AllowAzureServices"
   server_id        = azurerm_postgresql_flexible_server.this.id
   start_ip_address = "0.0.0.0"
   end_ip_address   = "0.0.0.0"
+}
+
+# ---------------------------------------------------------------------------
+# Optional private endpoint (opt-in via enable_private_networking). Projects the
+# flexible server into snet-pe as a private IP and wires the
+# privatelink.postgres.database.azure.com zone group so PGHOST resolves privately
+# from inside the VNet. Public access is turned off on the server above.
+# ---------------------------------------------------------------------------
+resource "azurerm_private_endpoint" "pg" {
+  count               = var.enable_private_networking ? 1 : 0
+  name                = "pe-psql-${var.base}"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  subnet_id           = var.private_endpoint_subnet_id
+
+  private_service_connection {
+    name                           = "psc-psql-${var.base}"
+    private_connection_resource_id = azurerm_postgresql_flexible_server.this.id
+    is_manual_connection           = false
+    subresource_names              = ["postgresqlServer"]
+  }
+
+  private_dns_zone_group {
+    name                 = "postgres"
+    private_dns_zone_ids = [var.private_dns_zone_id]
+  }
+
+  tags = var.tags
 }
 
 # Entra admin (usually the deploying principal) — the single account allowed to

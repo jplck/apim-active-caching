@@ -14,3 +14,8 @@ output "hostname" {
 output "port" {
   value = azurerm_managed_redis.this.default_database[0].port
 }
+
+# Null when private networking is disabled (private endpoint not created).
+output "private_endpoint_id" {
+  value = try(azurerm_private_endpoint.redis[0].id, null)
+}

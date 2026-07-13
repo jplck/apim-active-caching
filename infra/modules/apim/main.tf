@@ -152,3 +152,72 @@ resource "azurerm_api_management_api_policy" "workers" {
     azurerm_api_management_redis_cache.active,
   ]
 }
+
+# ---------------------------------------------------------------------------
+# Private networking (OPTIONAL — plan.md §10). Everything here is gated by
+# var.enable_private_networking, so flag-off is a complete no-op. The public
+# gateway ALWAYS stays reachable: we deliberately never set
+# publicNetworkAccess=Disabled (that Std v2 switch is a separate post-create
+# PATCH and would break public API access — §10.1 / §10.5).
+#
+# §10.1 — on Standard v2 these are TWO SEPARATE, one-directional features; do
+# NOT conflate them:
+#   * Inbound private endpoint  (client -> APIM): projects the gateway as a
+#     private IP inside the VNet, while public access stays ON. Implemented below.
+#   * Outbound VNet integration (APIM -> backend): lets APIM reach the private
+#     middleware over the VNet. This is NOT a private endpoint and is a separate
+#     feature — see the provider-limitation note below.
+# A single injected model that carries BOTH directions on one delegated subnet
+# only exists on Premium v2 (VNet injection); Standard v2 splits the capability
+# into the two gateway-only halves above.
+# ---------------------------------------------------------------------------
+
+# --- Outbound VNet integration (Standard v2) — PROVIDER LIMITATION ----------
+# §10.3 wants APIM to reach the private middleware via Std v2 outbound VNet
+# integration (the "integrate-vnet-outbound" feature: a subnet delegated to
+# Microsoft.Web/serverFarms). azurerm ~> 4.0 does NOT model this yet.
+#
+# Verified against the provider source (SDK apimanagementservice 2024-05-01):
+# the ONLY VNet arguments on azurerm_api_management are `virtual_network_type`
+# (None/External/Internal) + `virtual_network_configuration { subnet_id }`.
+# Those are the CLASSIC injection model (Developer/Premium, requires port 3443)
+# — Azure rejects them for the StandardV2 SKU and they do NOT configure v2
+# outbound integration. There is no azurerm argument for the v2 feature yet
+# (ref: hashicorp/terraform-provider-azurerm #24377 only added the v2 SKU names).
+#
+# Per the fleet rules we do NOT hack this in and do NOT add azapi. The
+# `integration_subnet_id` variable is declared (variables.tf) so the root wiring
+# validates, but is intentionally UNUSED here. Enable outbound integration
+# MANUALLY after deploy, pointing APIM at the delegated subnet
+# var.integration_subnet_id (which must be delegated to Microsoft.Web/serverFarms):
+#   Portal: APIM -> Network -> Outbound features -> enable "Virtual network
+#           integration" -> select the delegated subnet -> Save.
+#   CLI   : PATCH the service via `az rest` using an API version that supports the
+#           v2 feature, setting outbound integration onto integration_subnet_id.
+# Docs: https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound
+# ---------------------------------------------------------------------------
+
+# --- Inbound private endpoint (Standard v2, Gateway sub-resource) -----------
+# client -> APIM private IP. Public gateway access is unchanged (purely additive).
+# On Std v2 the private endpoint covers the GATEWAY only (not the management or
+# developer-portal endpoints — those would need Premium v2 injection; §10.5).
+resource "azurerm_private_endpoint" "apim" {
+  count               = var.enable_private_networking ? 1 : 0
+  name                = "pe-apim-${var.base}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.private_endpoint_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "apim-gateway"
+    private_connection_resource_id = azurerm_api_management.this.id
+    is_manual_connection           = false
+    subresource_names              = ["Gateway"]
+  }
+
+  private_dns_zone_group {
+    name                 = "apim"
+    private_dns_zone_ids = [var.apim_private_dns_zone_id]
+  }
+}

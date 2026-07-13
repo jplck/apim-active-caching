@@ -40,3 +40,13 @@ output "WORKDAY_SOAP_MOCK_ENDPOINT" {
   description = "Mocked Workday SOAP Get_Workers endpoint (the refresher's POC source)."
   value       = module.apim.workday_soap_mock_endpoint
 }
+
+output "VNET_ID" {
+  description = "VNet id when private networking is enabled; null otherwise."
+  value       = try(module.network.vnet_id, null)
+}
+
+output "PRIVATE_NETWORKING_ENABLED" {
+  description = "Whether the private-networking topology (VNet + private endpoints) is enabled."
+  value       = local.enable_private_networking
+}

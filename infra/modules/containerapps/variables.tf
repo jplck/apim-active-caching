@@ -25,6 +25,22 @@ variable "container_port" {
   description = "Middleware HTTP port (FastAPI/uvicorn default) and ingress target port."
 }
 
+# --- private networking (opt-in) ------------------------------------------
+# Root passes these EXACT inputs. When enable_private_networking is false the
+# subnet id stays null (provider treats it as unset), so the Container Apps
+# environment is provisioned public exactly as before — a byte-for-byte no-op.
+variable "enable_private_networking" {
+  type        = bool
+  default     = false
+  description = "Opt-in: place the Container Apps environment on the VNet and make middleware ingress internal (VNet-only)."
+}
+
+variable "infrastructure_subnet_id" {
+  type        = string
+  default     = null
+  description = "ACA infrastructure subnet id. Required (non-null) only when enable_private_networking is true."
+}
+
 # --- registry -------------------------------------------------------------
 variable "acr_login_server" {
   type = string

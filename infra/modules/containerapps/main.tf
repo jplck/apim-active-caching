@@ -39,13 +39,24 @@ resource "azurerm_container_app_environment" "this" {
   resource_group_name        = var.resource_group_name
   log_analytics_workspace_id = azurerm_log_analytics_workspace.this.id
   tags                       = var.tags
+
+  # Private networking (opt-in). Flag off => infrastructure_subnet_id is null
+  # (provider treats it as unset) and internal_load_balancer_enabled is false
+  # (the default): a byte-for-byte no-op vs. the public build. internal LB mode
+  # requires infrastructure_subnet_id to be set. Note: changing either argument
+  # forces environment replacement — acceptable for an opt-in flag chosen at
+  # deploy time.
+  infrastructure_subnet_id       = var.infrastructure_subnet_id
+  internal_load_balancer_enabled = var.enable_private_networking
 }
 
 # ---------------------------------------------------------------------------
-# Middleware — always-on FastAPI Container App (external ingress). APIM imports
-# its OpenAPI and proxies to this URL. Reads Postgres with the middleware
-# identity's Entra token (PGUSER = middleware role, no DB password).
-# azd-service-name tag tells `azd deploy` which app to push the image to.
+# Middleware — always-on FastAPI Container App (external ingress by default;
+# internal / VNet-only when private networking is enabled). APIM imports its
+# OpenAPI and proxies to this URL (over the VNet via APIM outbound integration
+# when private). Reads Postgres with the middleware identity's Entra token
+# (PGUSER = middleware role, no DB password). azd-service-name tag tells
+# `azd deploy` which app to push the image to.
 # ---------------------------------------------------------------------------
 resource "azurerm_container_app" "middleware" {
   name                         = "middleware-${var.token}"
@@ -65,7 +76,8 @@ resource "azurerm_container_app" "middleware" {
   }
 
   ingress {
-    external_enabled = true
+    # Public by default; internal (VNet-only) when private networking is on.
+    external_enabled = !var.enable_private_networking
     target_port      = var.container_port
     transport        = "auto"
     traffic_weight {
@@ -126,6 +138,9 @@ resource "azurerm_container_app" "middleware" {
 # startup) and are surfaced as WORKDAY_USERNAME / WORKDAY_PASSWORD env vars, so
 # the app just reads os.environ — no Key Vault SDK call on the hot path. Writes
 # Postgres with the refresher identity's Entra token.
+# No ingress (outbound-only): when private networking is enabled its outbound
+# calls (Postgres / Key Vault / Workday) traverse the VNet automatically via the
+# VNet-integrated environment above — no change needed here.
 # ---------------------------------------------------------------------------
 resource "azurerm_container_app_job" "refresher" {
   name                         = "refresher-${var.token}"
