@@ -5,5 +5,25 @@ metadata:
 infra:
   provider: terraform
   path: infra
-# No services: the refresher runs a public image with an inline script, so there
-# is nothing to build. `azd up` just provisions the Terraform below.
+# Two container workloads. azd builds each image, pushes it to the ACR
+# (ACR_LOGIN_SERVER comes from the Terraform output) and deploys to the Container
+# App / Job that Terraform tagged with the matching azd-service-name.
+services:
+  middleware:
+    project: ./middleware
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+      registry: ${ACR_LOGIN_SERVER}
+  # Container Apps Job (cron). azd targets it via the azd-service-name=refresher
+  # tag; host is still `containerapp` (azd detects the job resource type).
+  refresher:
+    project: ./refresher
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+      registry: ${ACR_LOGIN_SERVER}

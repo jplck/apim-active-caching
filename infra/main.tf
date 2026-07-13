@@ -1,315 +1,127 @@
-resource "random_string" "suffix" {
-  length  = 5
-  special = false
-  upper   = false
-}
+# ---------------------------------------------------------------------------
+# Root composition. Wires the modules together and owns the resource group +
+# shared data sources. Cross-module IAM: the only role assignments here are the
+# ones that would otherwise create module cycles; the Key Vault Secrets User and
+# AcrPull grants live in the keyvault/registry modules because they depend only
+# on `identity` (a leaf) and so are cycle-free. The Postgres Entra DB roles are
+# bootstrapped inside the postgres module. Hence no extra IAM is needed here.
+# ---------------------------------------------------------------------------
 
-# Shared secret the refresher presents (X-Refresh-Token) to trigger a cache load.
-resource "random_password" "refresh_token" {
-  length  = 32
-  special = false
-}
+data "azurerm_client_config" "current" {}
 
-locals {
-  token = lower(random_string.suffix.result)
-  base  = "${var.environment_name}-${local.token}"
-  tags  = { "azd-env-name" = var.environment_name }
+module "naming" {
+  source           = "./modules/naming"
+  environment_name = var.environment_name
 }
 
 resource "azurerm_resource_group" "this" {
   name     = "rg-${var.environment_name}"
   location = var.location
-  tags     = local.tags
+  tags     = module.naming.tags
 }
 
-# ---------------------------------------------------------------------------
-# Azure Managed Redis (external cache for APIM)
-# ponytail: classic Azure Cache for Redis is retired for new creates, so this
-# uses Azure Managed Redis on the cheapest Balanced_B0 SKU. EnterpriseCluster
-# policy exposes a single, non-clustered endpoint that APIM's StackExchange.Redis
-# client connects to with a plain connection string (no cluster redirects).
-# access_keys_authentication_enabled = true so the connection string can use a key.
-# ---------------------------------------------------------------------------
-resource "azurerm_managed_redis" "this" {
-  name                      = "redis-${local.base}"
-  location                  = azurerm_resource_group.this.location
-  resource_group_name       = azurerm_resource_group.this.name
-  sku_name                  = var.redis_sku
-  high_availability_enabled = false
-  tags                      = local.tags
-
-  default_database {
-    clustering_policy                  = "EnterpriseCluster"
-    client_protocol                    = "Encrypted"
-    access_keys_authentication_enabled = true
-  }
-}
-
-# ---------------------------------------------------------------------------
-# API Management (Standard v2)
-# ---------------------------------------------------------------------------
-resource "azurerm_api_management" "this" {
-  name                = "apim-${local.base}"
-  location            = azurerm_resource_group.this.location
+module "identity" {
+  source              = "./modules/identity"
   resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  base                = module.naming.base
+  tags                = module.naming.tags
+}
+
+module "keyvault" {
+  source                 = "./modules/keyvault"
+  resource_group_name    = azurerm_resource_group.this.name
+  location               = azurerm_resource_group.this.location
+  token                  = module.naming.token
+  tags                   = module.naming.tags
+  workday_username       = var.workday_username
+  workday_password       = var.workday_password
+  refresher_principal_id = module.identity.refresher_principal_id
+}
+
+module "registry" {
+  source                  = "./modules/registry"
+  resource_group_name     = azurerm_resource_group.this.name
+  location                = azurerm_resource_group.this.location
+  token                   = module.naming.token
+  tags                    = module.naming.tags
+  middleware_principal_id = module.identity.middleware_principal_id
+  refresher_principal_id  = module.identity.refresher_principal_id
+}
+
+module "redis" {
+  source              = "./modules/redis"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  base                = module.naming.base
+  tags                = module.naming.tags
+  redis_sku           = var.redis_sku
+}
+
+module "postgres" {
+  source                  = "./modules/postgres"
+  resource_group_name     = azurerm_resource_group.this.name
+  location                = azurerm_resource_group.this.location
+  base                    = module.naming.base
+  tags                    = module.naming.tags
+  tenant_id               = data.azurerm_client_config.current.tenant_id
+  postgres_sku            = var.postgres_sku
+  postgres_storage_mb     = var.postgres_storage_mb
+  middleware_principal_id = module.identity.middleware_principal_id
+  refresher_principal_id  = module.identity.refresher_principal_id
+  entra_admin_object_id   = var.entra_admin_object_id
+}
+
+# The refresher's Workday source. When workday_soap_url is empty we fall back to
+# the in-APIM SOAP mock. We build that URL from the *deterministic* APIM hostname
+# (apim-<base>.azure-api.net) rather than from module.apim's output, which breaks
+# the containerapps -> apim -> containerapps cycle (apim needs the middleware URL).
+locals {
+  apim_gateway_url           = "https://apim-${module.naming.base}.azure-api.net"
+  workday_soap_url_effective = var.workday_soap_url != "" ? var.workday_soap_url : "${local.apim_gateway_url}/workday-soap/Human_Resources"
+}
+
+module "containerapps" {
+  source              = "./modules/containerapps"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  base                = module.naming.base
+  token               = module.naming.token
+  tags                = module.naming.tags
+
+  acr_login_server = module.registry.login_server
+
+  middleware_identity_id = module.identity.middleware_id
+  middleware_client_id   = module.identity.middleware_client_id
+  refresher_identity_id  = module.identity.refresher_id
+  refresher_client_id    = module.identity.refresher_client_id
+
+  postgres_fqdn     = module.postgres.fqdn
+  postgres_port     = module.postgres.port
+  postgres_database = module.postgres.database_name
+  middleware_role   = module.postgres.middleware_role
+  refresher_role    = module.postgres.refresher_role
+
+  workday_username_secret_id = module.keyvault.username_secret_id
+  workday_password_secret_id = module.keyvault.password_secret_id
+
+  refresh_cron     = var.refresh_cron
+  workday_soap_url = local.workday_soap_url_effective
+}
+
+module "apim" {
+  source              = "./modules/apim"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  base                = module.naming.base
+  tags                = module.naming.tags
+  apim_sku            = var.apim_sku
   publisher_name      = var.publisher_name
   publisher_email     = var.publisher_email
-  sku_name            = var.apim_sku
-  tags                = local.tags
-}
+  cache_ttl_seconds   = var.cache_ttl_seconds
 
-# Wire Azure Managed Redis as APIM's external cache. cache_location "default" =
-# usable from any region. Port 10000 + ssl=True is the Managed Redis endpoint.
-resource "azurerm_api_management_redis_cache" "this" {
-  name              = "default"
-  api_management_id = azurerm_api_management.this.id
-  connection_string = "${azurerm_managed_redis.this.hostname}:${azurerm_managed_redis.this.default_database[0].port},password=${azurerm_managed_redis.this.default_database[0].primary_access_key},ssl=True,abortConnect=False"
-  cache_location    = "default"
-}
+  redis_hostname = module.redis.hostname
+  redis_port     = module.redis.port
 
-# Named values shared by the policies (single source of truth via TF vars).
-# ponytail: CacheKey is no longer used (the active-cache fragment keys on context.Api.Id),
-# but it's kept so applying this change doesn't try to DELETE it while the live workers
-# policy still references {{CacheKey}} — APIM rejects that with a 400. Harmless orphan;
-# delete it in a later apply once the fragment-based policy is live.
-resource "azurerm_api_management_named_value" "cache_key" {
-  name                = "CacheKey"
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  display_name        = "CacheKey"
-  value               = "workers-all"
-}
-
-resource "azurerm_api_management_named_value" "cache_ttl" {
-  name                = "CacheTtlSeconds"
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  display_name        = "CacheTtlSeconds"
-  value               = tostring(var.cache_ttl_seconds)
-}
-
-# The (mocked) Workday backend the refresh branch pulls a full load from. Points at
-# the in-APIM mock; swap for a real Workday workers URL to go live.
-resource "azurerm_api_management_named_value" "workday_backend_url" {
-  name                = "WorkdayBackendUrl"
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  display_name        = "WorkdayBackendUrl"
-  value               = "${azurerm_api_management.this.gateway_url}/workday-mock/workers"
-}
-
-# Secret that gates the refresh branch of the workers API (only the job knows it).
-resource "azurerm_api_management_named_value" "refresh_token" {
-  name                = "RefreshToken"
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  display_name        = "RefreshToken"
-  value               = random_password.refresh_token.result
-  secret              = true
-}
-
-# Reusable caching logic. Any API includes it with <include-fragment fragment-id="active-cache" />
-# after setting a "backendUrl" variable; the cache key is context.Api.Id (unique per API).
-resource "azurerm_api_management_policy_fragment" "active_cache" {
-  api_management_id = azurerm_api_management.this.id
-  name              = "active-cache"
-  format            = "xml"
-  value             = file("${path.module}/policies/active-cache.fragment.xml")
-  depends_on = [
-    azurerm_api_management_named_value.cache_ttl,
-    azurerm_api_management_named_value.refresh_token,
-    azurerm_api_management_redis_cache.this,
-  ]
-}
-
-# ---------------------------------------------------------------------------
-# API 1: workday-mock — the mocked downstream Workday. Returns sample workers.
-# Public so the workers refresh branch can hairpin to it without a key. In a real
-# deployment WorkdayBackendUrl points at Workday (OAuth), not this mock.
-# ---------------------------------------------------------------------------
-resource "azurerm_api_management_api" "mock" {
-  name                  = "workday-mock"
-  resource_group_name   = azurerm_resource_group.this.name
-  api_management_name   = azurerm_api_management.this.name
-  revision              = "1"
-  display_name          = "Workday Mock API"
-  path                  = "workday-mock"
-  protocols             = ["https"]
-  subscription_required = false
-}
-
-resource "azurerm_api_management_api_operation" "mock_get" {
-  operation_id        = "get-workers"
-  api_name            = azurerm_api_management_api.mock.name
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  display_name        = "Get Workers"
-  method              = "GET"
-  url_template        = "/workers"
-  response {
-    status_code = 200
-  }
-}
-
-resource "azurerm_api_management_api_policy" "mock" {
-  api_name            = azurerm_api_management_api.mock.name
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  xml_content = templatefile("${path.module}/policies/workday-mock.xml.tftpl", {
-    workers_json = file("${path.module}/data/workers.json")
-  })
-  depends_on = [azurerm_api_management_api_operation.mock_get]
-}
-
-# ---------------------------------------------------------------------------
-# API 1b: workday-mock-soap — the same mock as a Workday SOAP (Human_Resources /
-# Get_Workers) endpoint. POST returns a static Get_Workers_Response envelope.
-# Kept alongside the REST mock so both integration styles can be demoed/cached.
-# ---------------------------------------------------------------------------
-resource "azurerm_api_management_api" "mock_soap" {
-  name                  = "workday-mock-soap"
-  resource_group_name   = azurerm_resource_group.this.name
-  api_management_name   = azurerm_api_management.this.name
-  revision              = "1"
-  display_name          = "Workday Mock SOAP API"
-  path                  = "workday-soap"
-  protocols             = ["https"]
-  subscription_required = false
-}
-
-resource "azurerm_api_management_api_operation" "mock_soap_get" {
-  operation_id        = "get-workers"
-  api_name            = azurerm_api_management_api.mock_soap.name
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  display_name        = "Get_Workers"
-  method              = "POST"
-  url_template        = "/Human_Resources"
-  response {
-    status_code = 200
-  }
-}
-
-resource "azurerm_api_management_api_policy" "mock_soap" {
-  api_name            = azurerm_api_management_api.mock_soap.name
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  xml_content = templatefile("${path.module}/policies/workday-mock-soap.xml.tftpl", {
-    workers_soap = file("${path.module}/data/workers-soap.xml")
-  })
-  depends_on = [azurerm_api_management_api_operation.mock_soap_get]
-}
-
-# ---------------------------------------------------------------------------
-# API 2: workers — the active-cache endpoint. Serves ONLY from Redis on the read
-# path (HIT/503). A refresh branch, gated by X-Refresh-Token, pulls a full load
-# from Workday and cache-stores it THROUGH APIM (correct key namespace). This is
-# what used to be a separate cache-admin API.
-# Public (no subscription) so it is trivial to curl.
-# ---------------------------------------------------------------------------
-resource "azurerm_api_management_api" "workers" {
-  name                  = "workers"
-  resource_group_name   = azurerm_resource_group.this.name
-  api_management_name   = azurerm_api_management.this.name
-  revision              = "1"
-  display_name          = "Workers (cached)"
-  path                  = "workers"
-  protocols             = ["https"]
-  subscription_required = false
-}
-
-resource "azurerm_api_management_api_operation" "workers_get" {
-  operation_id        = "get-cached-workers"
-  api_name            = azurerm_api_management_api.workers.name
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  display_name        = "Get Cached Workers"
-  method              = "GET"
-  url_template        = "/"
-  response {
-    status_code = 200
-  }
-}
-
-resource "azurerm_api_management_api_policy" "workers" {
-  api_name            = azurerm_api_management_api.workers.name
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  xml_content         = file("${path.module}/policies/workers-cache-read.xml")
-  depends_on = [
-    azurerm_api_management_api_operation.workers_get,
-    azurerm_api_management_policy_fragment.active_cache,
-    azurerm_api_management_named_value.cache_ttl,
-    azurerm_api_management_named_value.workday_backend_url,
-    azurerm_api_management_named_value.refresh_token,
-    azurerm_api_management_redis_cache.this,
-  ]
-}
-
-# ---------------------------------------------------------------------------
-# Container Apps Job — the active pre-filler (cron). No custom image/build:
-# public alpine/curl + an inline script triggers the refresh (GET /workers with the token).
-# ponytail: pulls alpine/curl from Docker Hub anonymously. If rate limits bite,
-# push it to an ACR and point image/registry here.
-# ---------------------------------------------------------------------------
-resource "azurerm_log_analytics_workspace" "this" {
-  name                = "log-${local.base}"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
-  sku                 = "PerGB2018"
-  retention_in_days   = 30
-  tags                = local.tags
-}
-
-resource "azurerm_container_app_environment" "this" {
-  name                       = "cae-${local.base}"
-  location                   = azurerm_resource_group.this.location
-  resource_group_name        = azurerm_resource_group.this.name
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.this.id
-  tags                       = local.tags
-}
-
-resource "azurerm_container_app_job" "refresher" {
-  name                         = "refresher-${local.token}"
-  location                     = azurerm_resource_group.this.location
-  resource_group_name          = azurerm_resource_group.this.name
-  container_app_environment_id = azurerm_container_app_environment.this.id
-  replica_timeout_in_seconds   = 120
-  replica_retry_limit          = 1
-
-  schedule_trigger_config {
-    cron_expression          = var.refresh_cron
-    parallelism              = 1
-    replica_completion_count = 1
-  }
-
-  secret {
-    name  = "refresh-token"
-    value = random_password.refresh_token.result
-  }
-
-  template {
-    container {
-      name    = "refresher"
-      image   = "docker.io/alpine/curl:latest"
-      cpu     = 0.25
-      memory  = "0.5Gi"
-      command = ["/bin/sh", "-c"]
-      args    = [file("${path.module}/../refresher/refresh.sh")]
-
-      env {
-        name  = "APIM_GATEWAY_URL"
-        value = azurerm_api_management.this.gateway_url
-      }
-      env {
-        name        = "REFRESH_TOKEN"
-        secret_name = "refresh-token"
-      }
-    }
-  }
-
-  depends_on = [
-    azurerm_api_management_api_policy.mock,
-    azurerm_api_management_api_policy.workers,
-  ]
+  middleware_url = module.containerapps.middleware_url
 }

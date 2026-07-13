@@ -1,0 +1,53 @@
+<!--
+  Passive request/response caching for the Workers API.
+  APIM Standard v2 has NO built-in cache, so this uses the external Redis cache
+  (caching-type="external") via the cache-lookup-value / cache-store-value value
+  APIs, keyed by request path + query string (vary-by URL + query).
+
+  Flow:
+    inbound  -> build cacheKey -> cache-lookup-value
+                HIT  : return the cached body immediately (X-Cache: HIT)
+                MISS : fall through to the middleware backend
+    outbound -> on a fresh 200, cache-store-value the body for {{CacheTtlSeconds}}
+                and mark the response X-Cache: MISS
+  Double quotes inside @() expressions are XML-escaped as &quot; and As<string>
+  as As&lt;string&gt; so the file is valid XML.
+-->
+<policies>
+  <inbound>
+    <base />
+    <set-variable name="cacheKey" value="@(&quot;workers|&quot; + context.Request.Url.Path + &quot;|&quot; + context.Request.Url.QueryString)" />
+    <cache-lookup-value key="@((string)context.Variables[&quot;cacheKey&quot;])" variable-name="cachedResponse" caching-type="external" />
+    <choose>
+      <when condition="@(context.Variables.ContainsKey(&quot;cachedResponse&quot;))">
+        <return-response>
+          <set-status code="200" reason="OK" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-header name="X-Cache" exists-action="override">
+            <value>HIT</value>
+          </set-header>
+          <set-body>@((string)context.Variables["cachedResponse"])</set-body>
+        </return-response>
+      </when>
+    </choose>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+    <choose>
+      <when condition="@(!context.Variables.ContainsKey(&quot;cachedResponse&quot;) &amp;&amp; context.Response.StatusCode == 200)">
+        <cache-store-value key="@((string)context.Variables[&quot;cacheKey&quot;])" value="@(context.Response.Body.As&lt;string&gt;(preserveContent: true))" duration="{{CacheTtlSeconds}}" caching-type="external" />
+        <set-header name="X-Cache" exists-action="override">
+          <value>MISS</value>
+        </set-header>
+      </when>
+    </choose>
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

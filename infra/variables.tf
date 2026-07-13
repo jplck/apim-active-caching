@@ -38,12 +38,51 @@ variable "redis_sku" {
 
 variable "cache_ttl_seconds" {
   type        = number
-  description = "External-cache TTL. Keep > refresh interval so the cache never empties between runs (default 2 days > daily refresh)."
+  description = "External-cache TTL for the passive workers cache (keep > refresh interval)."
   default     = 172800
 }
 
 variable "refresh_cron" {
   type        = string
-  description = "Cron for the refresher Container Apps Job (UTC, 5-field). Daily full load by default."
+  description = "Cron for the refresher Container Apps Job (UTC, 5-field). Daily sync by default."
   default     = "0 2 * * *"
+}
+
+# --- Workday ISU credentials (stored in Key Vault) ------------------------
+# Supplied via TF_VAR_workday_username / TF_VAR_workday_password (never committed).
+variable "workday_username" {
+  type        = string
+  description = "Workday ISU username (e.g. isu_integration@tenant). Stored as a Key Vault secret."
+  sensitive   = true
+}
+
+variable "workday_password" {
+  type        = string
+  description = "Workday ISU password. Stored as a Key Vault secret."
+  sensitive   = true
+}
+
+variable "workday_soap_url" {
+  type        = string
+  description = "Workday SOAP endpoint. Empty string => use the in-APIM SOAP mock."
+  default     = ""
+}
+
+# --- Postgres -------------------------------------------------------------
+variable "postgres_sku" {
+  type        = string
+  description = "Postgres Flexible Server SKU. Burstable B1ms is the cheapest."
+  default     = "B_Standard_B1ms"
+}
+
+variable "postgres_storage_mb" {
+  type        = number
+  description = "Postgres Flexible Server storage in MB."
+  default     = 32768
+}
+
+variable "entra_admin_object_id" {
+  type        = string
+  description = "Object id of the Entra principal made Postgres AAD admin (usually the deployer). Null skips admin + DB role bootstrap (e.g. plain terraform validate)."
+  default     = null
 }

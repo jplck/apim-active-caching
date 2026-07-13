@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Canonical Get_Workers_Response shaped to the plan.md §5 XPaths. Unlike the POC
+  SOAP mock (workers-soap.xml), this exercises every mapped field: WORK-usage
+  email filter, CWID Custom_ID, Preferred name, primary-job ([@wd:Primary_Job=1])
+  business site + company/cost-center org rows, and the countryCode integration
+  field override. Worker 21001 is fully populated; 21002 is minimal (only the
+  Employee_ID) to assert None handling.
+-->
+<env:Envelope xmlns:env="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wd="urn:com.workday/bsvc">
+  <env:Body>
+    <wd:Get_Workers_Response wd:version="v46.2">
+      <wd:Response_Results>
+        <wd:Total_Results>2</wd:Total_Results>
+        <wd:Total_Pages>1</wd:Total_Pages>
+        <wd:Page_Results>2</wd:Page_Results>
+        <wd:Page>1</wd:Page>
+      </wd:Response_Results>
+      <wd:Response_Data>
+        <wd:Worker>
+          <wd:Worker_Reference>
+            <wd:ID wd:type="WID">0e44c92412d34b01ace61e80a47aaf6d</wd:ID>
+            <wd:ID wd:type="Employee_ID">21001</wd:ID>
+          </wd:Worker_Reference>
+          <wd:Worker_Data>
+            <wd:Personal_Data>
+              <wd:Name_Data>
+                <wd:Legal_Name_Data>
+                  <wd:Name_Detail_Data>
+                    <wd:Formatted_Name>Logan T McNeil</wd:Formatted_Name>
+                    <wd:First_Name>Logan</wd:First_Name>
+                    <wd:Last_Name>McNeil</wd:Last_Name>
+                  </wd:Name_Detail_Data>
+                </wd:Legal_Name_Data>
+                <wd:Preferred_Name_Data>
+                  <wd:Name_Detail_Data>
+                    <wd:Formatted_Name>Logan McNeil</wd:Formatted_Name>
+                    <wd:First_Name>Logan</wd:First_Name>
+                    <wd:Last_Name>McNeil</wd:Last_Name>
+                  </wd:Name_Detail_Data>
+                </wd:Preferred_Name_Data>
+              </wd:Name_Data>
+              <wd:Contact_Data>
+                <wd:Email_Address_Data>
+                  <wd:Email_Address>logan.personal@example.com</wd:Email_Address>
+                  <wd:Usage_Data wd:Public="1">
+                    <wd:Type_Data wd:Primary="1">
+                      <wd:Type_Reference>
+                        <wd:ID wd:type="Communication_Usage_Type_ID">HOME</wd:ID>
+                      </wd:Type_Reference>
+                    </wd:Type_Data>
+                  </wd:Usage_Data>
+                </wd:Email_Address_Data>
+                <wd:Email_Address_Data>
+                  <wd:Email_Address>lmcneil@contoso.com</wd:Email_Address>
+                  <wd:Usage_Data wd:Public="1">
+                    <wd:Type_Data wd:Primary="1">
+                      <wd:Type_Reference>
+                        <wd:ID wd:type="Communication_Usage_Type_ID">WORK</wd:ID>
+                      </wd:Type_Reference>
+                    </wd:Type_Data>
+                  </wd:Usage_Data>
+                </wd:Email_Address_Data>
+              </wd:Contact_Data>
+              <wd:Identification_Data>
+                <wd:Custom_ID>
+                  <wd:Custom_ID_Data>
+                    <wd:ID>CW123456</wd:ID>
+                    <wd:Custom_ID_Type_Reference>
+                      <wd:ID wd:type="Custom_ID_Type_ID">CWID</wd:ID>
+                    </wd:Custom_ID_Type_Reference>
+                  </wd:Custom_ID_Data>
+                </wd:Custom_ID>
+              </wd:Identification_Data>
+            </wd:Personal_Data>
+            <wd:Employment_Data>
+              <wd:Worker_Job_Data wd:Primary_Job="0">
+                <wd:Position_Data>
+                  <wd:Business_Site_Summary_Data>
+                    <wd:Name>Secondary Office (should not match)</wd:Name>
+                    <wd:Location_Reference>
+                      <wd:ID wd:type="Location_ID">LOC-SECONDARY</wd:ID>
+                    </wd:Location_Reference>
+                  </wd:Business_Site_Summary_Data>
+                </wd:Position_Data>
+              </wd:Worker_Job_Data>
+              <wd:Worker_Job_Data wd:Primary_Job="1">
+                <wd:Position_Data>
+                  <wd:Business_Site_Summary_Data>
+                    <wd:Name>San Francisco</wd:Name>
+                    <wd:Location_Reference>
+                      <wd:ID wd:type="Location_ID">LOC-SF</wd:ID>
+                    </wd:Location_Reference>
+                    <wd:Address_Data>
+                      <wd:Country_Reference>
+                        <wd:ID wd:type="ISO_3166-1_Alpha-2_Code">US</wd:ID>
+                      </wd:Country_Reference>
+                    </wd:Address_Data>
+                  </wd:Business_Site_Summary_Data>
+                </wd:Position_Data>
+                <wd:Position_Organizations_Data>
+                  <wd:Position_Organization_Data>
+                    <wd:Organization_Data>
+                      <wd:Organization_Type_Reference>
+                        <wd:ID wd:type="Organization_Type_ID">Company</wd:ID>
+                      </wd:Organization_Type_Reference>
+                      <wd:Organization_Code>CMP-001</wd:Organization_Code>
+                      <wd:Organization_Name>Contoso Ltd</wd:Organization_Name>
+                    </wd:Organization_Data>
+                    <wd:Organization_Data>
+                      <wd:Organization_Type_Reference>
+                        <wd:ID wd:type="Organization_Type_ID">Cost_Center</wd:ID>
+                      </wd:Organization_Type_Reference>
+                      <wd:Organization_Code>CC-4100</wd:Organization_Code>
+                      <wd:Organization_Name>Field Sales</wd:Organization_Name>
+                    </wd:Organization_Data>
+                  </wd:Position_Organization_Data>
+                </wd:Position_Organizations_Data>
+              </wd:Worker_Job_Data>
+            </wd:Employment_Data>
+            <wd:Integration_Field_Override_Data>
+              <wd:Field_Reference>
+                <wd:ID wd:type="Integration_Document_Field_ID" wd:parent_id="Sailpoint_AdditionalService" wd:parent_type="Integration_System_ID">Company_Address_Country</wd:ID>
+              </wd:Field_Reference>
+              <wd:Value>US</wd:Value>
+            </wd:Integration_Field_Override_Data>
+          </wd:Worker_Data>
+        </wd:Worker>
+        <wd:Worker>
+          <wd:Worker_Reference>
+            <wd:ID wd:type="WID">3bd94d3f9e0c4a6f9e6d0f4f7a2b1c00</wd:ID>
+            <wd:ID wd:type="Employee_ID">21002</wd:ID>
+          </wd:Worker_Reference>
+          <wd:Worker_Data>
+            <wd:Personal_Data>
+              <wd:Name_Data>
+                <wd:Legal_Name_Data>
+                  <wd:Name_Detail_Data>
+                    <wd:Formatted_Name>Jane Doe</wd:Formatted_Name>
+                  </wd:Name_Detail_Data>
+                </wd:Legal_Name_Data>
+              </wd:Name_Data>
+            </wd:Personal_Data>
+          </wd:Worker_Data>
+        </wd:Worker>
+      </wd:Response_Data>
+    </wd:Get_Workers_Response>
+  </env:Body>
+</env:Envelope>

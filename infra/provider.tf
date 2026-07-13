@@ -5,9 +5,17 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 4.0"
     }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 3.0"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
     }
   }
 }
@@ -18,3 +26,8 @@ provider "azurerm" {
   subscription_id = var.subscription_id
   features {}
 }
+
+# azuread is declared alongside azurerm for Entra directory operations tied to
+# the MI-only auth model (Postgres Entra admin / DB principals). Inherits the
+# az login / ARM environment.
+provider "azuread" {}

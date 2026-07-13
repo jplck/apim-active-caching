@@ -1,35 +1,42 @@
-output "AZURE_LOCATION" {
-  value = azurerm_resource_group.this.location
-}
-
 output "RESOURCE_GROUP" {
   value = azurerm_resource_group.this.name
 }
 
+output "AZURE_LOCATION" {
+  value = azurerm_resource_group.this.location
+}
+
 output "APIM_GATEWAY_URL" {
-  value = azurerm_api_management.this.gateway_url
+  value = module.apim.gateway_url
 }
 
 output "WORKERS_ENDPOINT" {
-  description = "Public active-cache endpoint to test."
-  value       = "${azurerm_api_management.this.gateway_url}/workers"
+  description = "Passively-cached workers endpoint served via APIM."
+  value       = module.apim.workers_endpoint
 }
 
-output "WORKDAY_MOCK_ENDPOINT" {
-  value = "${azurerm_api_management.this.gateway_url}/workday-mock/workers"
+output "MIDDLEWARE_URL" {
+  description = "Middleware Container App external URL (APIM backend / OpenAPI source)."
+  value       = module.containerapps.middleware_url
 }
 
-output "WORKDAY_SOAP_MOCK_ENDPOINT" {
-  description = "Mocked Workday SOAP Get_Workers endpoint (POST a SOAP envelope)."
-  value       = "${azurerm_api_management.this.gateway_url}/workday-soap/Human_Resources"
+output "POSTGRES_FQDN" {
+  value = module.postgres.fqdn
+}
+
+output "ACR_LOGIN_SERVER" {
+  value = module.registry.login_server
 }
 
 output "REFRESHER_JOB_NAME" {
-  value = azurerm_container_app_job.refresher.name
+  value = module.containerapps.refresher_job_name
 }
 
-output "REFRESH_TOKEN" {
-  description = "X-Refresh-Token value that triggers the workers API refresh branch."
-  value       = random_password.refresh_token.result
-  sensitive   = true
+output "KEY_VAULT_URI" {
+  value = module.keyvault.vault_uri
+}
+
+output "WORKDAY_SOAP_MOCK_ENDPOINT" {
+  description = "Mocked Workday SOAP Get_Workers endpoint (the refresher's POC source)."
+  value       = module.apim.workday_soap_mock_endpoint
 }
