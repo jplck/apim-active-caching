@@ -1,8 +1,8 @@
 """Refresher entrypoint (Container Apps Job).
 
 On each cron run:
-  1. Read Workday ISU creds and config from the environment (already injected
-     from Key Vault at container startup -- no Key Vault SDK call here).
+  1. Resolve Workday ISU creds (from env, or Key Vault via managed identity at
+     run time -- see app.secrets) and read the rest of the config.
   2. Connect to Postgres (Entra MI token), bootstrap schema, read the watermark.
   3. Decide sync mode (``auto`` -> full when no watermark else delta).
   4. Page through ``Get_Workers`` over SOAP, transform each worker.
@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from app import db, soap
+from app import db, secrets, soap
 
 
 def _int_env(name: str, default: int) -> int:
@@ -98,8 +98,8 @@ def _fetch_all_workers(
 
 
 def run() -> None:
-    username = os.environ["WORKDAY_USERNAME"]
-    password = os.environ["WORKDAY_PASSWORD"]
+    username = secrets.resolve("WORKDAY_USERNAME", "workday-username")
+    password = secrets.resolve("WORKDAY_PASSWORD", "workday-password")
     url = os.environ["WORKDAY_SOAP_URL"]
     api_version = os.environ.get("WORKDAY_API_VERSION", "v46.2")
     sync_mode_env = os.environ.get("SYNC_MODE", "auto")
